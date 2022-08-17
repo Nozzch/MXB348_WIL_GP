@@ -1,0 +1,47 @@
+---
+title: "MXB348 Logickube project"
+authors:
+- Benjamin Williamson, n10487093
+- Alex Nobbs, n10481613
+date: '14-06-2022'
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(out.width='1200x', dpi=200)
+```
+
+```{r, include=FALSE, echo=FALSE}
+# Clear enviorment and run Garbage COllection
+rm(list=ls())
+gc() 
+
+# Imports
+library(dplyr)
+library(data.table)
+library(ggplot2)
+library(corrplot)
+```
+
+
+
+
+## Load Data and Pre-Processing 
+
+
+```{r Import Data, echo=FALSE,results='hide'}
+
+reprocess_data = TRUE
+
+if (reprocess_data) {
+  ss_data <- read.csv("data/all_sessions_sample.csv")
+
+  
+} else {
+  
+}
+
+
+```
