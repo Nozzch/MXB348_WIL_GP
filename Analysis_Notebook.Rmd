@@ -23,25 +23,147 @@ library(dplyr)
 library(data.table)
 library(ggplot2)
 library(corrplot)
+library(lubridate)
 ```
 
 
-
-
-## Load Data and Pre-Processing 
+## Load Data and Pre-Processing and Feature Creation
 
 
 ```{r Import Data, echo=FALSE,results='hide'}
 
+# Will load, preprocess and save R binary if true, run once the set to false for 
+# faster loading of data
 reprocess_data = TRUE
 
 if (reprocess_data) {
-  ss_data <- read.csv("data/all_sessions_sample.csv")
+  raw_ss_data <- read.csv("data/all_sessions_sample.csv")
+  ss_data = setDT(raw_ss_data)
+
+  # Convert to catagorical variables
+  ss_data$channelGrouping <- as.factor(ss_data$channelGrouping)
+  ss_data$country <- as.factor(ss_data$country)
+  ss_data$city <- as.factor(ss_data$city)
+  ss_data$pagePathLevel1 <- as.factor(ss_data$pagePathLevel1)
+  ss_data$eCommerceAction_type <- as.factor(ss_data$eCommerceAction_type)
+  ss_data$eCommerceAction_step <- as.factor(ss_data$eCommerceAction_step)
+
+  # Coerce to numeric for NA fill
+  ss_data$productRevenue <- as.numeric(ss_data$productRevenue)
+  ss_data$revenue <- as.numeric(ss_data$revenue)
+  ss_data$sessionQualityDim <- as.numeric(ss_data$sessionQualityDim)
+  ss_data$itemQuantity <- as.numeric(ss_data$itemQuantity)
+  ss_data$transactions <- as.numeric(ss_data$transactions)
+  ss_data$timeOnSite <- as.numeric(ss_data$timeOnSite)
+  
+  # Convert to date
+  ss_data$date <- parse_date_time(ss_data$date, orders = '%Y%m%d')
+  
+  # Adjust for decimals  
+  ss_data <- mutate(ss_data, total_revenue = totalTransactionRevenue/10**6)
+  
+  # Clean NAs
+  ss_data <- mutate(ss_data, revenue = if_else(is.na(revenue), 0, revenue))
+  ss_data <- mutate(ss_data, productRevenue = if_else(is.na(productRevenue), 0, productRevenue))
+  ss_data <- mutate(ss_data, sessionQualityDim = if_else(is.na(sessionQualityDim), 0, sessionQualityDim))
+  ss_data <- mutate(ss_data, itemQuantity = if_else(is.na(itemQuantity), 0, itemQuantity))
+  ss_data <- mutate(ss_data, transactions = if_else(is.na(transactions), 0, transactions))
+  ss_data <- mutate(ss_data, total_revenue = if_else(is.na(total_revenue), 0, total_revenue))
+
+  
+  #################################
+  #                               #
+  #       Feature Creation        #
+  #                               #
+  #################################
+  
+  setorderv(ss_data, c("fullVisitorId","date", "time"), c(1, 1, 1))
+  
+  
+  unique_interactions_dt = ss_data[,
+                                 .(total_product_rev = sum(productRevenue)),
+                                 by =.(fullVisitorId, visitId, time, date,
+                                       eCommerceAction_type, eCommerceAction_step,
+                                       timeOnSite, transactions, sessionQualityDim,
+                                       pagePathLevel1
+                                       )
+                                  ]
+  
+  
+  # Table of unique vists by fullVisitorId
+    
+  # Add visit_number: count of how many times they visited before current session
+  # and if transaction was made in the visit
+  unique_visits_dt <- ss_data[, .(count = .N,
+                                  tmp_transactions_agg = sum(transactions)
+                                  ),
+                              by = .(fullVisitorId, visitId)] [,
+                                .(
+                                  visitId,
+                                  transaction_flag = (tmp_transactions_agg > 0),
+                                  visit_number = seq_len(.N)
+                                  ),
+                                by = .(fullVisitorId)]
+  
+  unique_visits_dt$transaction_flag <- as.numeric(unique_visits_dt$transaction_flag)
+  
+  # txs_next_visit_flag: true if the user makes a transaction on their next visit
+  # If they don't return its filled as NA which is then converted to False / 0
+  unique_visits_dt <- unique_visits_dt[, txs_next_visit_flag := shift(.(transaction_flag), type = "lead"),
+                                       by = .(fullVisitorId)]
+  
+  unique_visits_dt <- mutate(unique_visits_dt, txs_next_visit_flag = if_else(is.na(txs_next_visit_flag), 0, txs_next_visit_flag))
+  unique_visits_dt <- mutate(unique_visits_dt, transaction_flag = if_else(is.na(transaction_flag), 0, transaction_flag))
+  
+  # action and step counts during a visit
+  aggregate_visit_actions_dt <- ss_data[, 
+                              .(
+                                visit_action_step_1 = sum((eCommerceAction_step == 1)),
+                                visit_action_step_2 = sum((eCommerceAction_step == 2)),
+                                visit_action_step_3 = sum((eCommerceAction_step == 3)),
+                                visit_action_type_0 = sum((eCommerceAction_type == 0)),
+                                visit_action_type_1 = sum((eCommerceAction_type == 1)),
+                                visit_action_type_2 = sum((eCommerceAction_type == 2)),
+                                visit_action_type_3 = sum((eCommerceAction_type == 3)),
+                                visit_action_type_4 = sum((eCommerceAction_type == 4)),
+                                visit_action_type_5 = sum((eCommerceAction_type == 5)),
+                                visit_action_type_6 = sum((eCommerceAction_type == 6)),
+                                visit_action_type_7 = sum((eCommerceAction_type == 7)),
+                                visit_action_type_8 = sum((eCommerceAction_type == 8))
+                               ),
+                          by = .(fullVisitorId, visitId)]
+  
+  unique_visits_dt <- unique_visits_dt[aggregate_visit_actions_dt, , on = .(fullVisitorId, visitId)]
+  
+
+  # Counts of unique vists by fullVisitorId
+  unique_visits_counts_dt <- ss_data[, .(.N), by = .(fullVisitorId,visitId)] [,
+                                .(.N), by = .(fullVisitorId)]
+  
+  unique_interactions_dt <- unique_interactions_dt[unique_visits_dt,
+                                                   visit_number:=visit_number,
+                                                   on =.(fullVisitorId,visitId)
+                                                  ]
+
+  
+  save(ss_data, file ="data/preprocessed_ss_data")  
+  save(unique_visits_dt, file ="data/unique_visits_dt")  
+  save(unique_visits_counts_dt, file ="data/unique_visits_counts_dt")  
+  save(unique_interactions_dt, file ="data/unique_interactions_dt")  
 
   
 } else {
-  
-}
+  load("data/preprocessed_ss_data")
+  load("data/unique_visits_dt")
+  load("data/unique_visits_counts_dt")
+  load("data/unique_interactions_dt")
+  }
+
+
+```
+## Exploratory Analysis
+```{r Import Data, echo=FALSE,results='hide'}
+
 
 
 ```
