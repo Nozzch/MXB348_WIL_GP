@@ -14,7 +14,7 @@ knitr::opts_chunk$set(out.width='1200x', dpi=200)
 ```
 
 ```{r, include=FALSE, echo=FALSE}
-# Clear enviorment and run Garbage COllection
+# Clear environment and run Garbage Collection
 rm(list=ls())
 gc() 
 
@@ -24,6 +24,11 @@ library(data.table)
 library(ggplot2)
 library(corrplot)
 library(lubridate)
+library(gridExtra)
+library(gtable)
+library(grid)
+library(corrplot)
+library(patchwork)
 ```
 
 
@@ -115,7 +120,7 @@ if (reprocess_data) {
   unique_visits_dt <- mutate(unique_visits_dt, txs_next_visit_flag = if_else(is.na(txs_next_visit_flag), 0, txs_next_visit_flag))
   unique_visits_dt <- mutate(unique_visits_dt, transaction_flag = if_else(is.na(transaction_flag), 0, transaction_flag))
   
-  # action and step counts during a visit
+  # Join action and step counts during a visit
   aggregate_visit_actions_dt <- ss_data[, 
                               .(
                                 visit_action_step_1 = sum((eCommerceAction_step == 1)),
@@ -135,6 +140,12 @@ if (reprocess_data) {
   
   unique_visits_dt <- unique_visits_dt[aggregate_visit_actions_dt, , on = .(fullVisitorId, visitId)]
   
+  # Join time on site, time instead of TimeOnSite as it contains NA
+  time_on_site_df = ss_data[, .(max_time_on_site = max(time)), by = .(fullVisitorId, visitId)]
+  time_on_site_df <- mutate(time_on_site_df, max_time_on_site = round(max_time_on_site/10**3, digits = 0) )
+  
+  unique_visits_dt <- unique_visits_dt[time_on_site_df,time_on_site := max_time_on_site, on = .(fullVisitorId, visitId)]
+
 
   # Counts of unique vists by fullVisitorId
   unique_visits_counts_dt <- ss_data[, .(.N), by = .(fullVisitorId,visitId)] [,
@@ -162,8 +173,363 @@ if (reprocess_data) {
 
 ```
 ## Exploratory Analysis
-```{r Import Data, echo=FALSE,results='hide'}
+```{r, echo=FALSE,results='hide'}
 
+visit_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_number)]
+visit_odds <- visit_odds[!is.infinite(txs_odds)]
+
+
+plot(visit_odds$visit_number,visit_odds$txs_odds,
+     ylab="logit of Transacting Next Visit",
+     xlab="Visit Number",
+     main="logit of Transacting Next Visit by Visit Number",
+     las=1,
+     cex.axis= .55,
+     cex.main=1)
+
+```
+
+```{r, echo=FALSE,results='hide'}
+
+action_stp_1_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_step_1 > 0)]
+action_stp_2_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_step_2 > 0)]
+action_stp_3_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_step_3 > 0)]
+
+action_typ_0_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_0 > 0)]
+action_typ_1_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_1 > 0)]
+action_typ_2_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_2 > 0)]
+action_typ_3_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_3 > 0)]
+action_typ_4_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_4 > 0)]
+action_typ_5_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_5 > 0)]
+action_typ_6_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_6 > 0)]
+action_typ_7_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_7 > 0)]
+action_typ_8_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_8 > 0)]
+
+
+log_odds_table <- data.frame(round(action_stp_1_odds$txs_odds, digits = 1),
+                             round(action_stp_2_odds$txs_odds, digits = 1),
+                             round(action_stp_3_odds$txs_odds, digits = 1),
+                             
+                             round(action_typ_0_odds$txs_odds, digits = 1),
+                             round(action_typ_1_odds$txs_odds, digits = 1),
+                             round(action_typ_2_odds$txs_odds, digits = 1),
+                             round(action_typ_3_odds$txs_odds, digits = 1),
+                             round(action_typ_4_odds$txs_odds, digits = 1),
+                             round(action_typ_5_odds$txs_odds, digits = 1),
+                             round(action_typ_6_odds$txs_odds, digits = 1),
+                             round(action_typ_7_odds$txs_odds, digits = 1),
+                             round(action_typ_8_odds$txs_odds, digits = 1)
+                             )
+
+names(log_odds_table) <- c( "Step 1",
+                            "Step 2",
+                            "Step 3",
+                            "Type 0",
+                            "Type 1",
+                            "Type 2",
+                            "Type 3",
+                            "Type 4",
+                            "Type 5",
+                            "Type 6",
+                            "Type 7",
+                            "Type 8"
+                            )
+
+row_names <- c("True", "False")
+
+title <- textGrob("Log Odds by Presence and Absence of Ecommerce Action Types and Steps",gp=gpar(fontsize=10))
+
+table <- tableGrob(log_odds_table,
+                    theme=ttheme_minimal(base_size = 10),
+                    rows=row_names)
+
+padding <- unit(5,"mm")
+
+table <- gtable_add_rows(
+     table, 
+     heights = grobHeight(title) + padding,
+     pos = 0)
+
+table <- gtable_add_grob(
+    table, 
+    title, 
+    1, 1, 1, ncol(table))
+
+
+grid.newpage()
+grid.draw(table)
+
+```
+
+```{r , echo=FALSE,results='hide'}
+
+action_stp_1_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_step_1)]
+action_stp_2_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_step_2)]
+action_stp_3_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_step_3)]
+
+action_stp_1_odds <- action_stp_1_odds[!is.infinite(txs_odds)]
+action_stp_2_odds <- action_stp_2_odds[!is.infinite(txs_odds)]
+action_stp_3_odds <- action_stp_3_odds[!is.infinite(txs_odds)]
+
+
+plot(action_stp_1_odds$visit_action_step_1 ,action_stp_1_odds$txs_odds,
+     ylab="logit of Transacting Next Visit",
+     xlab="Step 1 Action Count",
+     main="logit of Transacting Next Visit by Step 1 Action Count",
+     las=1,
+     cex.axis= .55,
+     cex.main=.9)
+
+par(mfrow = c(1,2))
+
+plot(action_stp_2_odds$visit_action_step_2 ,action_stp_2_odds$txs_odds,
+     ylab="logit of Transacting Next Visit",
+     xlab="Step 2 Action Count",
+     main="logit of Transacting Next Visit by Step 2 Action Count",
+     las=1,
+     cex.axis= .55,
+     cex.main=.75)
+
+plot(action_stp_3_odds$visit_action_step_3 ,action_stp_3_odds$txs_odds,
+     ylab="logit of Transacting Next Visit",
+     xlab="Step 3 Action Count",
+     main="logit of Transacting Next Visit by Step 3 Action Count",
+     las=1,
+     cex.axis= .55,
+     cex.main=.75)
+
+```
+
+
+```{r , echo=FALSE,results='hide'}
+
+action_typ_0_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_0)]
+action_typ_1_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_1)]
+action_typ_2_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_2)]
+action_typ_3_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_3)]
+action_typ_4_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_4)]
+action_typ_5_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_5)]
+action_typ_6_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_6)]
+action_typ_7_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_7)]
+action_typ_8_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))), by=(visit_action_type_8)]
+
+
+action_typ_0_odds <- action_typ_0_odds[!is.infinite(txs_odds)]
+action_typ_1_odds <- action_typ_1_odds[!is.infinite(txs_odds)]
+action_typ_2_odds <- action_typ_2_odds[!is.infinite(txs_odds)]
+action_typ_3_odds <- action_typ_3_odds[!is.infinite(txs_odds)]
+action_typ_4_odds <- action_typ_4_odds[!is.infinite(txs_odds)]
+action_typ_5_odds <- action_typ_5_odds[!is.infinite(txs_odds)]
+action_typ_6_odds <- action_typ_6_odds[!is.infinite(txs_odds)]
+action_typ_7_odds <- action_typ_7_odds[!is.infinite(txs_odds)]
+action_typ_8_odds <- action_typ_8_odds[!is.infinite(txs_odds)]
+
+
+
+# Type 0 and 1
+par(mfrow = c(1,2))
+plot(action_typ_0_odds$visit_action_type_0 ,action_typ_0_odds$txs_odds,
+     ylab="logit of Transacting Next Visit",
+     xlab="Type 0 Action Count",
+     main="logit of Transacting Next Visit by Type 0 Action Count",
+     las=1,
+     cex.axis= .55,
+     cex.main=.75)
+
+plot(action_typ_1_odds$visit_action_type_1 ,action_typ_1_odds$txs_odds,
+     ylab="logit of Transacting Next Visit",
+     xlab="Type 1 Action Count",
+     main="logit of Transacting Next Visit by Type 1 Action Count",
+     las=1,
+     cex.axis= .55,
+     cex.main=.75)
+
+
+# Type 2 and 3
+par(mfrow = c(1,2))
+plot(action_typ_2_odds$visit_action_type_2 ,action_typ_2_odds$txs_odds,
+     ylab="logit of Transacting Next Visit",
+     xlab="Type 2 Action Count",
+     main="logit of Transacting Next Visit by Type 2 Action Count",
+     las=1,
+     cex.axis= .55,
+     cex.main=.75)
+
+plot(action_typ_3_odds$visit_action_type_3 ,action_typ_3_odds$txs_odds,
+     ylab="logit of Transacting Next Visit",
+     xlab="Type 3 Action Count",
+     main="logit of Transacting Next Visit by Type 3 Action Count",
+     las=1,
+     cex.axis= .55,
+     cex.main=.75)
+
+# Type 4 and 5
+par(mfrow = c(1,2))
+plot(action_typ_4_odds$visit_action_type_4 ,action_typ_4_odds$txs_odds,
+     ylab="logit of Transacting Next Visit",
+     xlab="Type 4 Action Count",
+     main="logit of Transacting Next Visit by Type 4 Action Count",
+     las=1,
+     cex.axis= .55,
+     cex.main=.75)
+
+plot(action_typ_5_odds$visit_action_type_5 ,action_typ_5_odds$txs_odds,
+     ylab="logit of Transacting Next Visit",
+     xlab="Type 5 Action Count",
+     main="logit of Transacting Next Visit by Type 5 Action Count",
+     las=1,
+     cex.axis= .55,
+     cex.main=.75)
+
+# Type 6 and 7
+par(mfrow = c(1,2))
+plot(action_typ_6_odds$visit_action_type_6 ,action_typ_6_odds$txs_odds,
+     ylab="logit of Transacting Next Visit",
+     xlab="Type 6 Action Count",
+     main="logit of Transacting Next Visit by Type 6 Action Count",
+     las=1,
+     cex.axis= .55,
+     cex.main=.75)
+
+plot(action_typ_7_odds$visit_action_type_7 ,action_typ_7_odds$txs_odds,
+     ylab="logit of Transacting Next Visit",
+     xlab="Type 7 Action Count",
+     main="logit of Transacting Next Visit by Type 7 Action Count",
+     las=1,
+     cex.axis= .55,
+     cex.main=.75)
+
+# Type 8
+plot(action_typ_8_odds$visit_action_type_8 ,action_typ_8_odds$txs_odds,
+     ylab="logit of Transacting Next Visit",
+     xlab="Type 8 Action Count",
+     main="logit of Transacting Next Visit by Type 8 Action Count",
+     las=1,
+     cex.axis= .55,
+     cex.main=.75)
+```
+
+
+```{r , echo=FALSE,results='hide'}
+corr_data <- unique_visits_dt[,c("visit_action_step_1",
+                        "visit_action_step_2",
+                        "visit_action_step_3",
+                        "visit_action_type_0",
+                        "visit_action_type_1",
+                        "visit_action_type_2",
+                        "visit_action_type_3",
+                        "visit_action_type_4",
+                        "visit_action_type_5",
+                        "visit_action_type_6")]
+
+colnames(corr_data) <- c("Step 1",
+                        "step 2",
+                        "Step 3",
+                        "Type 0",
+                        "Type 1",
+                        "Type 2",
+                        "Type 3",
+                        "Type 4",
+                        "Type 5",
+                        "Type 6")
+
+Correlation <- cor(corr_data, use="pairwise.complete.obs")
+
+corrplot(Correlation,
+         method = "circle",
+         type = "upper")
 
 
 ```
+```{r , echo=FALSE,results='hide'}
+
+# Will test both WOE maximised binning and just using it as a continuous predictor, will see whats best.
+#
+#
+
+library(woeBinning)
+
+# get the bin cut points from your dataframe
+cutpoints <- woe.binning(unique_visits_dt, "txs_next_visit_flag", "time_on_site")
+woe.binning.plot(cutpoints)
+
+# apply the cutpoints to your dataframe
+dataset_woe <- woe.binning.deploy(unique_visits_dt, cutpoint, add.woe.or.dum.var = "woe")
+
+
+
+
+time_odds <- unique_visits_dt[ , .(txs_odds = log((sum(txs_next_visit_flag) / .N) / (1 - (sum(txs_next_visit_flag) / .N)))),
+                               by=(round(time_on_site/10,digits = -1))]
+
+plot(time_odds$round ,time_odds$txs_odds,
+     ylab="logit of Transacting Next Visit",
+     xlab="Type 8 Action Count",
+     main="logit of Transacting Next Visit by Type 8 Action Count",
+     las=1,
+     cex.axis= .55,
+     cex.main=.75)
+
+```
+
+
+## Perliminary Model Fitting
+
+```{r , echo=FALSE,results='hide'}
+
+set.seed(1)
+
+sample <- sample(c(TRUE, FALSE), nrow(unique_visits_dt), replace=TRUE, prob=c(0.7,0.3))
+
+
+train <- unique_visits_dt[sample, ]
+test <- unique_visits_dt[!sample, ]  
+
+model <- glm(txs_next_visit_flag ~ time_on_site + visit_number +
+               visit_action_type_0 +
+               visit_action_type_1 +
+               visit_action_type_2 +
+               visit_action_type_3 +
+               visit_action_type_4 +
+               visit_action_step_1 +
+               visit_action_step_2 +
+               visit_action_step_3,
+             family="binomial", data=unique_visits_dt)
+
+
+summary(model)
+
+library(DHARMa)
+
+res <- (simulateResiduals(model))
+plot(res)
+library(ROCR)
+
+prediction <- predict(model, unique_visits_dt, type="response")
+
+confusion_matrix <- as.data.frame(table(prediction, unique_visits_dt$txs_next_visit_flag))
+
+pred <- prediction(prediction, unique_visits_dt$txs_next_visit_flag)
+perf <- performance(pred,"tpr","fpr")
+plot(perf,colorize=TRUE)
+
+library(caret)
+```
+
+glmer_model.full <- glmer(formula = cbind(y, n - y) ~ 1 + mdhw + dist_squared + algae_prop + sand_prop + distance_to_nearest_ramp + Sector + Year_as_int +
+                       (1|Year:Site), family=binomial("logit"),
+                    data = coral_cover_scaled_data)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
