@@ -1,0 +1,253 @@
+---
+title: "MXB348_WIL_in_Statistics_Preliminary_Report"
+author: "Riley Dionysius"
+date: "09/09/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+library(ChannelAttribution)
+library(reshape)
+library(reshape2)
+library(ggplot2)
+library(dplyr)
+```
+
+## Introduction
+
+A key business issue that is regularly faced is a determination of success. This can be consider as either transactions and sales, specifically looking at revenue, or it could be considered simply as successful marketing and getting the companies names out into the public eye. Within Logickube, success is defined as eCommerce revenue. The company wishes to determine the amount of 'credit' that each channel factors towards this success, in the form of attribution modelling. Logickube wishes to assess attribution within two key tasks, being:
+
+- Attribution of the channels with respect to total revenue of the eCommerce business, in the form of an attribution model.
+- Determination of whether data granularity would lead to similar attribution results. 
+
+These problems will be assessed through creating an attribution model from July 2017 and determine total revenue at this point, and then expanding the model and determining the impact of data granularity on this attribution model.
+
+## Literature Review
+
+*Describe what other people do, what are the pros and cons of their approach*
+
+Before approaching the problems related around business success attribution modelling, it was important to gain a base understanding on what business attribution was associated with. A number of videos provided by project manager James McGree assisted in outlining this base understanding. These videos, provided by Hubspot Marketing [1] and iProspect [2] looked specifically at buisness based attribution modelling, and the methods surrounding these. These outlined four base heuristic models which would be of interest to potentially be used in this project. Those heuristic models included:
+
+- Last-Touch Attribution Model: Most commonly used attribution model. Assigns 100% of the attribution (credit) for a success to the last channel on the travel path (where success took place).
+- First-Touch Attribution Model: Assigns 100% of the attribution for a success to the first channel on the travel path (where the consumer first saw a product or marketting tool associated with the business).
+- Linear-Touch Attributuion Model: Assigns equal attribution to all channels along the travel path. Has less dependence on where the consumer saw the business initially, or where success took place. Considers all steps in the journey as equally important.
+- Simply Decay Attribution Model: Assigns a weighted percentage along the travel path to success. Typically weighted by time from first to last touch. Allows for most attribution to be associated with the last touch, but still assigns credit to the inital stages of the journey.
+
+There are some other models that could be considered, but these were most commonly mentioned and also seemed most relevant to the project. With these heuristic models, a consideration for data driven models can also be considered. This could be seen through an example by Surfside PPC [3], who demonstrated Google driven attribution modelling, which had an option for data driven models. This was considered when looking at previous attribution modelling projects to see how this could be implemented within our project.
+
+From here, a look into some previous projects was undertaken to see how attribution modelling has been conducted and could be improved. The first of these belong to Syed Mustufain Abbas Rizvi of Tampere University [4], who conducted an investigation into attribution models for data from both Adform and Google Analytics. This differs slightly from our research question, but can create a bsis for the models used. He used all the models mentioned above, but also looked at some data driven models, being a logistic regression and a markov chain. From this, he found that a first order Markov Chain model provided the best framework and results, and might be a consideration going forward for our project. Projects from Matej Matoulek from the Czech Technical University [5], as well as a ResearchGate article by Jitendra Gaur and Kumkum Bharti [6] also support this idea. However, alot of these projects look specifically at performance of the attribution models, which leaves space for expansion upon this to address the effects these models can have on the business, specifically looking at marketing habits and finacial allocation based on an attribution model lead allocation, and how these models can assist the overall business outlook, especially in an up-and-coming area such as eCommerce. Data granularity is also rarely mentioned, and could be considered vital in areas where business may not be so predictable, so knowing if the attribution can perform in sections of lessened data (less sales and transactions) is a vital point that will be persued through this project.
+
+With this knowledge acquired, analysis and implemetation of these ideas could begin.
+
+## Data
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Read in the data
+data <- read.csv("all_sessions_sample.csv")
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Convert to a data frame
+ChData <- as.data.frame(data)
+head(ChData)
+```
+
+Building on the methods from the exploratory analysis, considerations for the data ahd to be made for the attribution modelling. The considerations required were associated with the usage of the `ChannelAttribution` library, which will allow for application of an attribution model analysis, but will require adaptations to be made to the data. These changes are associated to the channels, seen in the data under the `channelGrouping` column. This data defines the path that a user takes over the web page, and is what is required to be analysed for the attribution model. Rather than assessing the data in terms of user, the data needs to be manipulated to be in the form of a travel path through the website channels, to determine of the path results in revenue, and attribute that accordingly. 
+
+Before diving into the method of manipulating this data, the correct data for this problem is required to be source from the larger overlying data set. During the initial prototyping stage, the data that was extracted was associated with the `fullVisitorId`, `channelGrouping`, `time`, `date`, `viditId`, `transactionRevenue` and `eCommerceAction_type` columns. All of these may not be utilised in the final design, however keeping them through the intial design stages will allow for changing ideas and methods to be implemented to determine the best result for the problem.
+
+A simple implementation of data extraction was also conducted within this stage, taking only the data from July 2017, as this is all that is required to be analysed for problem `4.1`. Problem `4.2` will expand on this, but for the initial prototyping stages, only this period of time was considered, to provide a solution for `4.1`, but also to reduce runtime during prototyping.
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Set the data frame to be in order of Visitor ID, then Visit ID, then time
+ChData <- ChData[order(ChData$fullVisitorId, ChData$visitId, ChData$time),]
+
+# Tahke the required columns from the original data for the attribution modelling
+ChDataReq <- ChData[,c("fullVisitorId", "channelGrouping", "time", "date", "visitId", "transactionRevenue", "eCommerceAction_type")]
+
+# Sort the data
+ChDataSort <- ChDataReq[order(ChDataReq$fullVisitorId, ChDataReq$time),]
+
+# Create a new column, outlining the date as YearMonth
+ChDataSort$yearMonth <- substr(ChDataReq$date, 1, 6)
+
+# Keep only the data from July 2017, as that is what is being asked to be assessed.
+ChDataSortJul2017 <- ChDataSort[ChDataSort$yearMonth == 201707,]
+```
+
+From here, methods could be formulated to convert the data into the required shape.
+
+## Methods
+
+For the attribution modelling, as mentioned above, the `channelAttribution` library was used to do alot of the ehavy lifting for the modelling. This library not only allows for the implementation of the heuristic methods (first-touch, last-time and linear-touch models), but also has an in-built k-order Markov representation, which can be used to identify structural correlations within the path data. This library requires the data to be re-structured into four data columns, being;
+
+- path: a definition of the entire path a consumer takes through the webpage up until the desired success (revenue), or the path they take through a single 'journey' without achieving success.
+- occurance: the amount of times a specified path is taken by consumers.
+- transaction: will define if a 'success' has occured, defined to be eCommerce revenue.
+- total null: defined to be the amount of occurances without success (occurance - transaction)
+
+The method of converting this data was to run the data through a loop, looking at each user, and determine the path they take through the web page. Upon each step, the loop determines if a transaction was made, or if the journey finishes. If this does not occur, the loop simply steps onto the next row. If transaction occurs, it stops the path and assigns a count for occurance and tranaction to the defined path. If the journey ends, the path ends and a count is only given to the occurance counter. From this, the data is group by path, with the `occurance`, `transaction` and `total_null` data summed for each path. A demonstration of the shape of this data can be seen below. 
+
+```{r, echo = FALSE, message = FALSE}
+# Conversion of the data into the frame that we want. This will require
+# - a path indicator, that looks at a user path on the web page.
+# - occurance, counting the number of times a path occurs in July 2017.
+# - transaction; an indicator of whether a purchase was made along the stated path
+# - total_null; a counter for number of times the path did not reach the desired 'success', being a transaction (occurance - transaction)
+
+# Begin by setting up empty vectors and counters.
+path <- c()
+path_count <- 1
+occurance <- c()
+occurance_count <- 1
+transaction <- c()
+transaction_count <- 1
+total_null <- vector(mode = "logical", length = 4432)
+
+# Cycle through every row
+for(i in 2:148087)
+{
+  # For the first instance, take the channel and set the values.
+  if(i-1 < 2){
+    path <- ChDataSortJul2017$channelGrouping[i-1]
+    occurance <- 1
+    if(is.na(ChDataSortJul2017$transactionRevenue[i-1])){
+      transaction <- 0
+    } else  {
+    transaction <- 1
+    }
+  }
+  
+  # If the two rows are different users, and therefore will be different paths, go to the next row.
+  if(ChDataSortJul2017$fullVisitorId[i] != ChDataSortJul2017$fullVisitorId[i-1]){
+    path <- c(path, ChDataSortJul2017$channelGrouping[i])
+    path_count <- path_count + 1
+    
+    if(path[path_count] == '2'){
+      path[path_count] = 'Affiliates'
+    }
+    else if(path[path_count] == '3'){
+      path[path_count] = 'Direct'
+    }
+    else if(path[path_count] == '4'){
+      path[path_count] = 'Display'
+    }
+    else if(path[path_count] == '5'){
+      path[path_count] = 'Organic Search'
+    }
+    else if(path[path_count] == '6'){
+      path[path_count] = 'Paid Search'
+    }
+    else if(path[path_count] == '7'){
+      path[path_count] = 'Referral'
+    }
+    else if(path[path_count] == '8'){
+      path[path_count] = 'Social'
+    }
+    
+    occurance_count <- occurance_count + 1
+    occurance[occurance_count] <- 1
+    transaction_count <- transaction_count + 1
+    transaction[transaction_count] <- 0
+  }
+  # If it is the same user, and it is not the first row of the new data frame
+  else if(ChDataSortJul2017$fullVisitorId[i] == ChDataSortJul2017$fullVisitorId[i-1] && path_count > 1){
+    path[path_count] <- paste(path[path_count], ChDataSortJul2017$channelGrouping[i], sep = " > ")
+    if(is.na(ChDataSortJul2017$transactionRevenue[i])){
+      transaction[transaction_count] <- 0
+      } else  {
+      transaction[transaction_count] <- 1
+      }
+  }
+  # If it is the same user, and it is the first row of the new data frame
+  else if(ChDataSortJul2017$fullVisitorId[i] == ChDataSortJul2017$fullVisitorId[i-1] && path_count == 1){
+    path <- paste(path, ChDataSortJul2017$channelGrouping[i], sep = " > ")
+    if(is.na(ChDataSortJul2017$transactionRevenue[i])){
+      transaction[transaction_count] <- 0
+      } else  {
+      transaction[transaction_count] <- 1
+      }
+    }
+}
+
+# Determine the number of null values (rows where transction does not occur)
+for(i in 1:4432){
+  total_null[i] <- occurance[i] - transaction[i]
+}
+
+# Create the new data frmae with the channel pathing data.
+attributionData <- data.frame(path, occurance, transaction, total_null)
+
+# Group the paths with the same values, and sum the other values (occurance, transaction, total null)
+attributionDataTable <- attributionData %>% group_by(path) %>% summarise(occurance = sum(occurance), transaction = sum(transaction), total_null = sum(total_null), .groups = 'drop')
+
+# Transform the data into a data frame.
+attributionDataFrame <- attributionDataTable %>% as.data.frame()
+
+head(attributionDataFrame)
+```
+
+With the data in the required shape, methods from the `channelAttreibution` library can be utilised. To begin, the heuristic models and the markov model can be created. All of the potential heauristic models in the `heiuristic_model` function will be used for assessment (first-touch, last-touch, linear-touch) and evaluation during prototyping stages, with suitability to be determined. With these models defined, they can be merged, with only the valuable information kept from these, and some manipulation conducted to these for simplicity of design for the plot (rename columns, transformation of the dataframe so is nicer for `ggplot`).
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Create the models for attribution using the `ChannelAttribution` function.
+# The first are the heuristic models, being first-touch, last-touch, and linear-touch for initial assessment.
+H <- heuristic_models(attributionDataFrame, 'path', 'transaction','transaction')
+# A Markov model will also be included for analysis.
+M <- markov_model(attributionDataFrame, 'path', 'transaction', var_value = 'transaction', order = 1, var_null = 'total_null')
+
+# Merge the models, and choose the columns to pick.
+R <- merge(H, M, by='channel_name') 
+R1 <- R[, (colnames(R)%in%c('channel_name', 'first_touch_conversions', 'last_touch_conversions', 'linear_touch_conversions', 'total_conversion'))]
+colnames(R1) <- c('channel_name', 'first_touch', 'last_touch', 'linear_touch', 'markov_model') 
+R1 <- melt(R1, id='channel_name')
+```
+
+With the models generated, the first prototype for the data can be analysed.
+
+## Results
+
+From the above data manipulation and model generation, the following plot is output as the first set of prototype results for the attribution modelling.
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Visualise the Attribution Modelling
+ggplot(R1, aes(channel_name, value, fill = variable)) +
+  geom_bar(stat='identity', position='dodge') +
+  ggtitle('Total Conversions') + 
+  theme(axis.title.x = element_text(vjust = -1.2)) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5)) +
+  theme(axis.title.y = element_text(vjust = +2)) +
+  theme(title = element_text(size = 16)) +
+  theme(plot.title=element_text(size = 20)) +
+  labs(fill = "Attribution") + 
+  xlab("Channel Label") +
+  ylab("")
+```
+
+What can be viewed from this output is that the larger majority of contribution is being attributed towards `Referral` channels, for all of the modelling methods. `Referral` channel is seen to be the majority of the first interactions with users, and where revenue takes place, and therefore makes sense that the linear and markov models also assocociate alot of the overall attribution to this channel. This gives the initial interpretation that this channel is a key avenue for the business, and should be the main area for campaining and potential budget allocations. `Organic Search` and `Direct` channels also have some influnece, and should potentially be considered also, but this will be further investigated when building upon the first modelling prototype.
+
+## Discussion
+
+From the results above, what can be defined as the next steps for the attribution modelling. Alot of the changes that will need to be made for problem `4.1` relate too the data and how it is manipulated. A check will need to be done to ensure that the paths being taken are from a single 'journey', as currently the loop only looks at either transaction being made and change of consumer, and does not specifically consider the saem user making multiple journeys. Another consideration is to clean up the loops, as currently the are reasonably 'messy' but get the job done, but issues could arrive when working with larger data sets, specifically when looking at implementating a solution for problem `4.2`, For problem `4.1`, it is also asked to calculate total revenue for July 2017 which is not included currently, however should be a simple implementation, and because of that thought, more time was allocated to get the attribution modelling functioning up to thius point.
+
+Another consideration would be to include more heiristic or probabilistic models for the attribution. This would require an expansion on the current models, adn the `channelAttribution` package would not include them. An evaluation will need to be made as to whether this is necessary, since the four that are currently present all show similar results, so would including more models provide any new or relevant information. 
+
+Other interpretations of the results can also be considered going forward, looking at percentages of attribution, and also a method of associating the attribution directly with revenue to determine eCommerce revenue with attribution. The idea behind this would be the thought that `Referral` having more revenue successes, but another channel might result in large revenue margins (less items sold, but higher value), and would therefore be on par with this channel. This would need to be considered.
+
+Once these are considered, problem `4.2` will be implemented, looking to expand on this attribution model, and looking to provide experiments looking at data granularity and its effect on attribution performance, as well as sampling within these models.
+
+## References
+
+[1] What Is Attribution Modeling? A Quick Explainer for Marketers. United States: Hubspot, 2017.
+
+[2] What is Attribution Modelling?. Ireland: iPorspect, 2014.
+
+[3] Google Ads Attribution Models Explained and Attribution Reports in Google Analytics. United States: Surfside PPC, 2019.
+
+[4] S. Rizvi, "Attribution Modelling of Online Advertising", Tampere University, Tampere, 2019.
+
+[5] M. Matoulek, "Data Analytical Way to Identify an Appropriate Attribution Model for Digital Marketing", Czech Technical University, Prague, 2018.
+
+[6] J. Gaur and K. Bharti, "Attribution Modelling in Marketing: Literature Review and Research Agenda", Academy of Marketing Studies Journal, vol. 24, no. 4, pp. 1-22, 2020. [Accessed 10 September 2022].
